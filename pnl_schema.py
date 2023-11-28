@@ -1,6 +1,5 @@
 import pandas as pd
 
-# Assuming your original data is in an Excel file named 'test_datev.xlsx'
 excel_path = r'C:\Users\xxx.xls'
 
 # Read the data with headers
