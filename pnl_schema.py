@@ -1,36 +1,58 @@
+%%pyspark
+blob_account_name = "saytcourse"
+blob_container_name = "datev"
+from pyspark.sql import SparkSession
 import pandas as pd
+import numpy as np
+import pyspark.sql.functions as F
+from pyspark.sql.window import Window
 
-excel_path = r'C:\Users\xxx.xls'
+sc = SparkSession.builder.getOrCreate()
+token_library = sc._jvm.com.microsoft.azure.synapse.tokenlibrary.TokenLibrary
+blob_sas_token = token_library.getConnectionString("AzureBlobStorage2")
 
-# Read the data with headers
-df = pd.read_excel(excel_path, header=None)
+spark.conf.set(
+    'fs.azure.sas.%s.%s.blob.core.windows.net' % (blob_container_name, blob_account_name),
+    blob_sas_token)
+df = spark.read.option("header", "true").option("sep", ",").load('wasbs://datev@saytcourse.blob.core.windows.net/Datev_BWA.csv', format='csv'
+## If header exists uncomment line below
+##, header=True
+)
+selected_cols = df.columns[:2]
+df = df.select(*selected_cols)
 
-df = df.iloc[:, :3]
 
-filtered_df = df[df[0].apply(lambda x: isinstance(x, (int, float)))]
+df = df.toPandas()
 
-# Iterate over rows and fill empty cells in the first column
-current_value = None
 for index, row in df.iterrows():
-    if row[0] == '  ':
-        df.at[index, 0] = current_value
+    if len(row['Zeile'].strip()) == 0:
+        df.at[index,'isEmpty'] = True
     else:
-        current_value = row[0]
+        df.at[index,'isEmpty'] = False
 
-# Drop rows with missing values in the second column
-df = df.dropna(subset=[df.columns[1]])
+df_pnl_lines = df[df["isEmpty"] == False]
 
-# Reset index
-df = df.reset_index(drop=True)
+display(df_pnl_lines.sort_values(by='Zeile', inplace=True))
 
-# Merge the original DataFrame and the filtered DataFrame on the first column
-merged_df = pd.merge(df, filtered_df, on=0, how='inner')
+for index, row in df.iterrows():
+    if len(row['Zeile'].strip()) > 0:
+        row_saved = row['Zeile']
+    elif len(row['Zeile'].strip()) == 0:
+        df.at[index,'Zeile'] = row_saved
 
-# Filter out rows where the values in the second and third columns are equal
-final_df = merged_df[merged_df[merged_df.columns[1]] != merged_df[merged_df.columns[3]]]
+df = df[df["isEmpty"] == True]
 
-final_df = final_df.iloc[:, [0,1, 3]]
+df = pd.merge(df, df_pnl_lines, on='Zeile', how='left')
 
-# Save the final DataFrame to a new Excel file named 'output_final.xlsx'
-output_final_excel_path = r'C:\Users\SimonKarrenberg\Desktop\output_final.xlsx'
-final_df.to_excel(output_final_excel_path, index=False, header=False)
+df[['Konto', 'Konto Text']] = df['Bezeichnung_x'].str.split(n=1, expand=True)
+
+df = df.rename(columns={'Bezeichnung_y': 'P&L Line'})
+
+df = df.sort_values(by='Zeile')
+display(df)
+df['Rank'] = (df['Zeile'] != df['Zeile'].shift(1)).astype(int).cumsum()
+df["P&L Line"] = df['Rank'].astype(str) + '_' + df['P&L Line'].astype(str)
+
+df = df[["P&L Line", "Konto", "Konto Text"]]
+
+display(df)
