@@ -56,3 +56,4 @@ df["P&L Line"] = df['Rank'].astype(str) + '_' + df['P&L Line'].astype(str)
 df = df[["P&L Line", "Konto", "Konto Text"]]
 
 display(df)
+
