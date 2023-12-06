@@ -1,6 +1,6 @@
 %%pyspark
-blob_account_name = "saytcourse"
-blob_container_name = "datev"
+blob_account_name = "sadatevtopbi"
+blob_container_name = "config"
 from pyspark.sql import SparkSession
 import pandas as pd
 import numpy as np
@@ -9,17 +9,19 @@ from pyspark.sql.window import Window
 
 sc = SparkSession.builder.getOrCreate()
 token_library = sc._jvm.com.microsoft.azure.synapse.tokenlibrary.TokenLibrary
-blob_sas_token = token_library.getConnectionString("AzureBlobStorage2")
+blob_sas_token = token_library.getConnectionString("AzureBlobStorage1")
 
 spark.conf.set(
     'fs.azure.sas.%s.%s.blob.core.windows.net' % (blob_container_name, blob_account_name),
     blob_sas_token)
-df = spark.read.option("header", "true").option("sep", ",").load('wasbs://datev@saytcourse.blob.core.windows.net/Datev_BWA.csv', format='csv'
+df = spark.read.option("header", "true").load('wasbs://config@sadatevtopbi.blob.core.windows.net/BWA_Schema.csv', format='csv'
 ## If header exists uncomment line below
 ##, header=True
 )
 selected_cols = df.columns[:2]
 df = df.select(*selected_cols)
+
+display(df)
 
 
 df = df.toPandas()
@@ -49,11 +51,12 @@ df[['Konto', 'Konto Text']] = df['Bezeichnung_x'].str.split(n=1, expand=True)
 df = df.rename(columns={'Bezeichnung_y': 'P&L Line'})
 
 df = df.sort_values(by='Zeile')
+df['Rank'] = (df['Zeile'] != df['Zeile'].shift(1)).astype(int).cumsum().astype(str)
+df['Rank'] = df['Rank'].apply('{:0>2}'.format)
+df["P&L Line"] = df['Rank'] + '_' + df['P&L Line'].astype(str)
+
 display(df)
-df['Rank'] = (df['Zeile'] != df['Zeile'].shift(1)).astype(int).cumsum()
-df["P&L Line"] = df['Rank'].astype(str) + '_' + df['P&L Line'].astype(str)
 
 df = df[["P&L Line", "Konto", "Konto Text"]]
-
-display(df)
-
+df = spark.createDataFrame(df)
+df.coalesce(1).write.csv('wasbs://config@sadatevtopbi.blob.core.windows.net/BWA_Schema_clean.csv', mode='overwrite', header=True)
